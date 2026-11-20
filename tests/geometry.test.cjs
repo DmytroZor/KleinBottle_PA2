@@ -14,10 +14,21 @@ function nearVec(a, b, epsilon = EPS) { return a.length === b.length && a.every(
 const mesh = sample('CreateSurfaceData(64,48)');
 assert.equal(mesh.positions.length / 3, 65 * 49);
 assert.equal(mesh.normals.length, mesh.positions.length);
+assert.equal(mesh.tangents.length, mesh.positions.length);
+assert.equal(mesh.texCoords.length, (65 * 49) * 2);
 assert.equal(mesh.indices.length, 64 * 48 * 6);
 assert.equal(mesh.lineIndices.length, (65 * 48 + 64 * 49 + 64 * 48) * 2);
 assert(mesh.indices.every(i => i >= 0 && i < 65 * 49));
 assert(mesh.normals.every(Number.isFinite));
+assert(mesh.tangents.every(Number.isFinite));
+assert(mesh.texCoords.every(x => Number.isFinite(x) && x >= 0 && x <= 1));
+for (let i = 0; i < mesh.positions.length / 3; i++) {
+    const n = mesh.normals.slice(i * 3, i * 3 + 3);
+    const t = mesh.tangents.slice(i * 3, i * 3 + 3);
+    assert(Math.abs(Math.hypot(...t) - 1) < EPS, 'analytic tangent must be unit');
+    assert(Math.abs(n.reduce((sum, x, j) => sum + x * t[j], 0)) < EPS,
+        'analytic tangent and analytic normal must be perpendicular');
+}
 
 const detail = sample('CreateSurfaceData(160,160)');
 assert.equal(detail.positions.length / 3, 25921);
@@ -54,6 +65,6 @@ for (const v of [0.1, 0.9, 2.3, 3.6, 5.6]) {
     const rNormal = sample(`kleinBottleNormal(2*Math.PI, ${2 * Math.PI - v})`);
     assert(nearVec(lNormal, rNormal.map(x=>-x)), 'normal must reverse at twisted U seam');
 }
-console.log('Geometry tests passed. Max analytic normal difference:', maxNormalError);
+console.log('Geometry + tangent + UV tests passed. Max analytic normal difference:', maxNormalError);
 console.log('Default:', mesh.positions.length / 3, 'vertices,', mesh.indices.length / 3, 'triangles.');
 console.log('Maximum:', detail.positions.length / 3, 'vertices,', detail.indices.length / 3, 'triangles.');

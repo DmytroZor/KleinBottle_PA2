@@ -3,6 +3,15 @@
 let gl;
 let surface;
 let shProgram;
+let gouraudProgram;
+let diffuseTexture;
+let specularTexture;
+let normalTexture;
+let renderMode = 'normal-mapped';
+let useDiffuseMap = true;
+let useSpecularMap = true;
+let useNormalMap = true;
+let texturesLoaded = 0;
 let lineProgram;
 let spaceball;
 let uSegments = 64;
@@ -34,13 +43,8 @@ function cross(a, b) {
     ];
 }
 
-/**
- * ANALYTIC VERTEX NORMAL (the specified variant):
- * n(u,v) = normalize( (dr/du) x (dr/dv) ).
- * Derivatives below are exact derivatives of the PA1 parametrization.
- * At the non-orientable u-seam the normal direction necessarily reverses.
- */
-function kleinBottleNormal(u, v) {
+/** Analytic tangent vectors of the unchanged PA1 Klein-bottle parametrization. */
+function kleinBottleDerivatives(u, v) {
     const C = Math.cos(u / 2);
     const S = Math.sin(u / 2);
     const cu = Math.cos(u);
@@ -55,16 +59,27 @@ function kleinBottleNormal(u, v) {
     const Rv = C * cv - 2 * S * c2v;
     const Zu = 0.5 * C * sv - 0.5 * S * s2v;
     const Zv = S * cv + 2 * C * c2v;
+    return {
+        du: [Ru * cu - R * su, Ru * su + R * cu, Zu],
+        dv: [Rv * cu, Rv * su, Zv]
+    };
+}
 
-    const du = [Ru * cu - R * su, Ru * su + R * cu, Zu];
-    const dv = [Rv * cu, Rv * su, Zv];
+function normalize3(vector) {
+    const length = Math.hypot(vector[0], vector[1], vector[2]);
+    if (length < 1e-10) throw new Error('Degenerate vector in surface frame');
+    return vector.map(x => x / length);
+}
 
-    const n = cross(du, dv);
-    const length = Math.hypot(n[0], n[1], n[2]);
-    if (length < 1e-10) {
-        throw new Error('Degenerate normal at u=' + u + ', v=' + v);
-    }
-    return [n[0] / length, n[1] / length, n[2] / length];
+/** PA2 analytic vertex normal n = normalize(dr/du x dr/dv). */
+function kleinBottleNormal(u, v) {
+    const { du, dv } = kleinBottleDerivatives(u, v);
+    return normalize3(cross(du, dv));
+}
+
+/** ControlTask: texture U direction tangent, from an ANALYTIC derivative. */
+function kleinBottleTangent(u, v) {
+    return normalize3(kleinBottleDerivatives(u, v).du);
 }
 
 /**
@@ -83,6 +98,8 @@ function CreateSurfaceData(nU = uSegments, nV = vSegments) {
 
     const positions = [];
     const normals = [];
+    const tangents = [];
+    const texCoords = [];
     const indices = [];
     const lineIndices = [];
     const width = nV + 1;
@@ -94,6 +111,8 @@ function CreateSurfaceData(nU = uSegments, nV = vSegments) {
             const v = TWO_PI * j / nV;
             positions.push(...kleinBottlePoint(u, v));
             normals.push(...kleinBottleNormal(u, v));
+            tangents.push(...kleinBottleTangent(u, v));
+            texCoords.push(i / nU, j / nV);
         }
     }
 
@@ -128,7 +147,7 @@ function CreateSurfaceData(nU = uSegments, nV = vSegments) {
         }
     }
 
-    return { positions, normals, indices, lineIndices };
+    return { positions, normals, tangents, texCoords, indices, lineIndices };
 }
 
 /** Assemble the normal matrix transpose(inverse(ModelView)) as mat3. */
@@ -164,19 +183,39 @@ function draw() {
     // sending the resulting eye-space coordinates to the GPU.
     const lightEye = m4.transformPoint(modelView, lightWorld);
 
-    gl.useProgram(shProgram.prog);
-    gl.uniformMatrix4fv(shProgram.uModelView, false, modelView);
-    gl.uniformMatrix4fv(shProgram.uProjection, false, projection);
-    gl.uniformMatrix3fv(shProgram.uNormalMatrix, false, getNormalMatrix(modelView));
-    gl.uniform3fv(shProgram.uLightEye, lightEye);
-    gl.uniform3fv(shProgram.uBaseColor, [0.16, 0.70, 0.92]);
-
+    if (renderMode === 'gouraud') {
+        // Retain and demonstrate the fully working PA2 Gouraud shader as a comparison.
+        gl.useProgram(gouraudProgram.prog);
+        gl.uniformMatrix4fv(gouraudProgram.uModelView, false, modelView);
+        gl.uniformMatrix4fv(gouraudProgram.uProjection, false, projection);
+        gl.uniformMatrix3fv(gouraudProgram.uNormalMatrix, false, getNormalMatrix(modelView));
+        gl.uniform3fv(gouraudProgram.uLightEye, lightEye);
+        gl.uniform3fv(gouraudProgram.uBaseColor, [0.16, 0.70, 0.92]);
+    } else {
+        gl.useProgram(shProgram.prog);
+        gl.uniformMatrix4fv(shProgram.uModelView, false, modelView);
+        gl.uniformMatrix4fv(shProgram.uProjection, false, projection);
+        gl.uniformMatrix3fv(shProgram.uNormalMatrix, false, getNormalMatrix(modelView));
+        gl.uniform3fv(shProgram.uLightEye, lightEye);
+        gl.uniform1i(shProgram.uUseDiffuseMap, useDiffuseMap ? 1 : 0);
+        gl.uniform1i(shProgram.uUseSpecularMap, useSpecularMap ? 1 : 0);
+        gl.uniform1i(shProgram.uUseNormalMap, useNormalMap ? 1 : 0);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, diffuseTexture);
+        gl.uniform1i(shProgram.uDiffuseTexture, 0);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, specularTexture);
+        gl.uniform1i(shProgram.uSpecularTexture, 1);
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, normalTexture);
+        gl.uniform1i(shProgram.uNormalTexture, 2);
+    }
     // Offset filled polygons slightly, so an optional grid can be drawn on top.
     if (showEdges) {
         gl.enable(gl.POLYGON_OFFSET_FILL);
         gl.polygonOffset(1.0, 1.0);
     }
-    surface.Draw(shProgram);
+    surface.Draw(renderMode === 'gouraud' ? gouraudProgram : shProgram);
     gl.disable(gl.POLYGON_OFFSET_FILL);
 
     if (showEdges) {
@@ -222,17 +261,69 @@ function buildMesh() {
         (mesh.indices.length / 3).toLocaleString() + ' triangles';
 }
 
+/** Three independent GPU texture objects on texture units 0, 1 and 2. */
+function loadTexture(filename, fallbackRgb) {
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    // A valid placeholder ensures that the shader can run while PNGs are loading.
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA,
+        gl.UNSIGNED_BYTE, new Uint8Array([...fallbackRgb, 255]));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    const image = new Image();
+    image.onload = () => {
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, image);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        texturesLoaded++;
+        const status = document.getElementById('textureStatus');
+        status.textContent = `Textures loaded: ${texturesLoaded} / 3`;
+        if (texturesLoaded === 3) status.classList.add('ready');
+    };
+    image.onerror = () => {
+        const status = document.getElementById('textureStatus');
+        status.textContent = `Cannot load ${filename}. Start Live Server.`;
+        status.classList.add('error');
+    };
+    image.src = filename;
+    return texture;
+}
+
 function initGL() {
     const lit = createProgram(vertexShaderSource, fragmentShaderSource);
     shProgram = {
         prog: lit,
         aPosition: gl.getAttribLocation(lit, 'aPosition'),
         aNormal: gl.getAttribLocation(lit, 'aNormal'),
+        aTangent: gl.getAttribLocation(lit, 'aTangent'),
+        aTexCoord: gl.getAttribLocation(lit, 'aTexCoord'),
         uModelView: gl.getUniformLocation(lit, 'uModelView'),
         uProjection: gl.getUniformLocation(lit, 'uProjection'),
         uNormalMatrix: gl.getUniformLocation(lit, 'uNormalMatrix'),
         uLightEye: gl.getUniformLocation(lit, 'uLightEye'),
-        uBaseColor: gl.getUniformLocation(lit, 'uBaseColor')
+        uDiffuseTexture: gl.getUniformLocation(lit, 'uDiffuseTexture'),
+        uSpecularTexture: gl.getUniformLocation(lit, 'uSpecularTexture'),
+        uNormalTexture: gl.getUniformLocation(lit, 'uNormalTexture'),
+        uUseDiffuseMap: gl.getUniformLocation(lit, 'uUseDiffuseMap'),
+        uUseSpecularMap: gl.getUniformLocation(lit, 'uUseSpecularMap'),
+        uUseNormalMap: gl.getUniformLocation(lit, 'uUseNormalMap')
+    };
+
+    const legacy = createProgram(pa2VertexShaderSource, pa2FragmentShaderSource);
+    gouraudProgram = {
+        prog: legacy,
+        aPosition: gl.getAttribLocation(legacy, 'aPosition'),
+        aNormal: gl.getAttribLocation(legacy, 'aNormal'),
+        uModelView: gl.getUniformLocation(legacy, 'uModelView'),
+        uProjection: gl.getUniformLocation(legacy, 'uProjection'),
+        uNormalMatrix: gl.getUniformLocation(legacy, 'uNormalMatrix'),
+        uLightEye: gl.getUniformLocation(legacy, 'uLightEye'),
+        uBaseColor: gl.getUniformLocation(legacy, 'uBaseColor')
     };
 
     const lines = createProgram(lineVertexShaderSource, lineFragmentShaderSource);
@@ -244,9 +335,13 @@ function initGL() {
     };
 
     gl.enable(gl.DEPTH_TEST);
-    gl.disable(gl.CULL_FACE); // Both sides of the Klein bottle must be visible.
+    gl.disable(gl.CULL_FACE); // Non-orientable Klein bottle, both sides required.
     surface = new Model('KleinBottle');
     buildMesh();
+
+    diffuseTexture = loadTexture('textures/diffuse.png', [37, 118, 160]);
+    specularTexture = loadTexture('textures/specular.png', [122, 122, 122]);
+    normalTexture = loadTexture('textures/normal.png', [128, 128, 255]);
 }
 
 function frame(timestamp) {
@@ -282,6 +377,20 @@ function init() {
             });
         }
 
+        document.getElementById('renderMode').addEventListener('change', e => {
+            renderMode = e.target.value;
+            const text = document.getElementById('modeDescription');
+            text.textContent = renderMode === 'gouraud' ?
+                'PA2 comparison: Gouraud lighting is computed per vertex without textures.' :
+                'ControlTask: diffuse + specular + per-pixel normal maps, normal-priority Gram–Schmidt.';
+        });
+        for (const [id, setter] of [
+            ['useDiffuseMap', x => { useDiffuseMap = x; }],
+            ['useSpecularMap', x => { useSpecularMap = x; }],
+            ['useNormalMap', x => { useNormalMap = x; }]
+        ]) {
+            document.getElementById(id).addEventListener('change', e => setter(e.target.checked));
+        }
         document.getElementById('showEdges').addEventListener('change', e => {
             showEdges = e.target.checked;
         });

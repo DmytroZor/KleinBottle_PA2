@@ -3,34 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PA2 — Klein Bottle | Gouraud Shading</title>
+    <title>ControlTask · Klein Bottle · Three Texture Maps</title>
     <style>
-        :root { color-scheme: dark; font-family: Inter, system-ui, Arial, sans-serif; }
+        :root { color-scheme: dark; font-family: Inter, system-ui, Segoe UI, Arial, sans-serif; }
         * { box-sizing: border-box; }
-        body { background: #0a1326; color: #e5eefc; margin: 0; min-height: 100vh; }
-        .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
-        .eyebrow { color: #6bd4ea; letter-spacing: .14em; font-size: 12px; text-transform: uppercase; font-weight: 700; }
-        h1 { font-size: clamp(24px, 4vw, 34px); font-weight: 750; margin: 6px 0 8px; }
-        .intro { margin: 0 0 20px; color: #a9b9d3; line-height: 1.5; }
-        .layout { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 18px; align-items: start; }
-        .viewer, .panel { border: 1px solid #213b59; background: #101e34; border-radius: 16px; overflow: hidden; }
-        #webglcanvas { width: 100%; height: auto; display: block; cursor: grab; touch-action: none; }
+        body { background: radial-gradient(circle at 12% 0, #11253c 0, #091326 46%, #070e1e 100%); color: #e7eefb; margin: 0; min-height: 100vh; }
+        .container { max-width: 1430px; margin: 0 auto; padding: 25px 26px 38px; }
+        .eyebrow { color: #78d7db; letter-spacing: .16em; font-size: 12px; font-weight: 800; }
+        h1 { font-size: clamp(25px, 3.5vw, 40px); margin: 8px 0 10px; line-height: 1.15; letter-spacing: -.022em; }
+        .accent { color: #f8c984; }
+        .intro { margin: 0 0 24px; color: #acc1d9; line-height: 1.5; font-size: 14px; }
+        .layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; align-items: start; }
+        .viewer, .panel { border: 1px solid #284460; background: #0f1b30; border-radius: 19px; overflow: hidden; box-shadow: 0 14px 42px rgba(0,0,0,.17); }
+        #webglcanvas { width: 100%; height: auto; display: block; cursor: grab; touch-action: none; background: #070a13; }
         #webglcanvas:active { cursor: grabbing; }
-        .viewer-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 12px 16px; color: #91adcb; font-size: 13px; border-top: 1px solid #213b59; }
-        .panel { padding: 20px; }
-        h2 { font-size: 16px; margin: 0 0 24px; }
-        .control { margin-bottom: 24px; }
-        .control-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .control-heading label { font-size: 14px; }
-        output { font-size: 14px; font-variant-numeric: tabular-nums; color: #6bd4ea; }
-        input[type="range"] { width: 100%; accent-color: #39cce7; }
-        .scale { display: flex; justify-content: space-between; color: #7b97b5; font-size: 11px; }
-        .check { display: flex; align-items: center; gap: 10px; margin: 18px 0; font-size: 14px; }
-        .check input { accent-color: #39cce7; width: 16px; height: 16px; }
-        .note { font-size: 12px; color: #9aabc3; line-height: 1.55; margin-top: 28px; border-top: 1px solid #30465f; padding-top: 20px; }
-        .note strong { color: #e5eefc; }
-        #error { color: #ffb2bb; padding: 12px; }
-        @media (max-width: 840px) { .layout { grid-template-columns: 1fr; } .panel { order: -1; } }
+        .viewer-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 13px 17px; color: #9bb5d3; font-size: 12px; border-top: 1px solid #29415e; }
+        #textureStatus { color: #b2c7e0; }
+        #textureStatus.ready { color: #75dcbc; }
+        #textureStatus.error { color: #ffa6ab; }
+        .panel { padding: 21px 22px 24px; }
+        h2 { font-size: 17px; margin: 0 0 18px; letter-spacing: -.015em; }
+        h3 { font-size: 12px; color: #d0e4ff; text-transform: uppercase; letter-spacing: .1em; margin: 24px 0 12px; }
+        .control { margin-bottom: 21px; }
+        .control-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px; }
+        .control-heading label { font-size: 13px; }
+        output { font-size: 14px; font-variant-numeric: tabular-nums; color: #79e4e3; }
+        input[type="range"] { width: 100%; accent-color: #54cfcb; }
+        .scale { display: flex; justify-content: space-between; color: #819ab8; font-size: 11px; }
+        .check { display: flex; align-items: center; gap: 10px; margin: 12px 0; font-size: 13px; cursor: pointer; }
+        .check input { accent-color: #51dbd5; width: 16px; height: 16px; flex: none; }
+        select { appearance: auto; width: 100%; background: #1a2d47; color: #e4eefb; border: 1px solid #43617d; padding: 10px; border-radius: 10px; font: inherit; font-size: 13px; }
+        .texture-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .texture-preview { min-width: 0; text-align: center; padding: 7px 5px 8px; background: #172840; border: 1px solid #294460; border-radius: 10px; }
+        .texture-preview img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; margin-bottom: 5px; }
+        .texture-preview span { font-size: 11px; color: #b7d1eb; }
+        .small-note { font-size: 12px; line-height: 1.6; color: #a6b9d2; margin: 12px 0 0; }
+        .variant { border-top: 1px solid #314d66; padding-top: 18px; margin-top: 22px; font-size: 12px; line-height: 1.7; color: #aabfd7; }
+        .variant strong { color: #f9d095; }
+        #error { color: #ffb5bd; padding: 14px; font-size: 13px; }
+        @media (max-width: 950px) { .layout { grid-template-columns: 1fr; } .panel { order: 2; } .texture-preview img { max-height: 85px; } }
+        @media (max-width: 570px) { .container { padding: 18px 12px; } .panel { padding: 18px; } }
     </style>
     <script src="Utils/trackball-rotator.js"></script>
     <script src="Utils/m4.js"></script>
@@ -39,36 +51,54 @@
     <script src="main.js"></script>
 </head>
 <body onload="init()">
-    <main class="container">
-        <div class="eyebrow">WebGL · Practical assignment 2</div>
-        <h1>Klein Bottle — Gouraud Shading</h1>
-        <p class="intro">Indexed triangle mesh · Analytic vertex normals · Moving point light</p>
-        <div class="layout">
-            <section class="viewer" aria-label="3D Klein bottle viewer">
-                <canvas id="webglcanvas" width="800" height="620">Your browser does not support HTML canvas.</canvas>
-                <div id="error" hidden></div>
-                <div class="viewer-footer">
-                    <span>Drag to rotate the bottle</span>
-                    <span id="meshInfo">Loading mesh…</span>
-                </div>
-            </section>
-            <aside class="panel">
-                <h2>Surface controls</h2>
-                <div class="control">
-                    <div class="control-heading"><label for="uSegments">U granularity</label><output id="uSegmentsValue" for="uSegments">64</output></div>
-                    <input id="uSegments" type="range" min="8" max="160" step="1" value="64">
-                    <div class="scale"><span>8</span><span>160</span></div>
-                </div>
-                <div class="control">
-                    <div class="control-heading"><label for="vSegments">V granularity</label><output id="vSegmentsValue" for="vSegments">48</output></div>
-                    <input id="vSegments" type="range" min="8" max="160" step="1" value="48">
-                    <div class="scale"><span>8</span><span>160</span></div>
-                </div>
-                <label class="check"><input id="showEdges" type="checkbox"> Show triangle grid</label>
-                <label class="check"><input id="animateLight" type="checkbox" checked> Rotate point light</label>
-                <div class="note"><strong>Variant:</strong> Gouraud shading with analytical normals.<p>Illumination (ambient + diffuse + specular) is calculated in the <strong>vertex shader</strong> and interpolated across triangles.</p><p>Single perspective projection. Light coordinates are transformed by the ModelView matrix.</p></div>
-            </aside>
-        </div>
-    </main>
+<main class="container">
+    <div class="eyebrow">WEBGL · CONTROL TASK · VARIANT 6</div>
+    <h1>Klein Bottle <span class="accent">— Texture &amp; Normal Mapping</span></h1>
+    <p class="intro">3 independent texture maps · Per-pixel normal mapping · Normal-priority Gram–Schmidt · Animated point light</p>
+    <div class="layout">
+        <section class="viewer" aria-label="Interactive Klein bottle WebGL renderer">
+            <canvas id="webglcanvas" width="1000" height="745">Your browser does not support HTML canvas.</canvas>
+            <div id="error" hidden role="alert"></div>
+            <div class="viewer-footer">
+                <span>Drag to rotate · Use sliders to change the mesh</span>
+                <span id="meshInfo">Building mesh…</span>
+                <span id="textureStatus" role="status">Textures loaded: 0 / 3</span>
+            </div>
+        </section>
+        <aside class="panel" aria-label="WebGL controls">
+            <h2>Surface controls</h2>
+            <div class="control">
+                <div class="control-heading"><label for="uSegments">U granularity</label><output id="uSegmentsValue" for="uSegments">64</output></div>
+                <input id="uSegments" type="range" min="8" max="160" step="1" value="64">
+                <div class="scale"><span>8</span><span>160</span></div>
+            </div>
+            <div class="control">
+                <div class="control-heading"><label for="vSegments">V granularity</label><output id="vSegmentsValue" for="vSegments">48</output></div>
+                <input id="vSegments" type="range" min="8" max="160" step="1" value="48">
+                <div class="scale"><span>8</span><span>160</span></div>
+            </div>
+            <h3>Rendering mode</h3>
+            <label for="renderMode" class="small-note" style="display:block;margin:0 0 8px">Select shading implementation</label>
+            <select id="renderMode">
+                <option value="normal-mapped" selected>ControlTask — 3 texture maps</option>
+                <option value="gouraud">PA2 — Gouraud comparison</option>
+            </select>
+            <p id="modeDescription" class="small-note">ControlTask: diffuse + specular + per-pixel normal maps, normal-priority Gram–Schmidt.</p>
+            <h3>Texture layers</h3>
+            <div class="texture-grid">
+                <div class="texture-preview"><img src="textures/diffuse.png" alt="Diffuse color texture"><span>Diffuse</span></div>
+                <div class="texture-preview"><img src="textures/specular.png" alt="Specular intensity texture"><span>Specular</span></div>
+                <div class="texture-preview"><img src="textures/normal.png" alt="Tangent space normal texture"><span>Normal</span></div>
+            </div>
+            <label class="check"><input id="useDiffuseMap" type="checkbox" checked> Diffuse texture</label>
+            <label class="check"><input id="useSpecularMap" type="checkbox" checked> Specular texture</label>
+            <label class="check"><input id="useNormalMap" type="checkbox" checked> Normal texture (per pixel)</label>
+            <h3>Display</h3>
+            <label class="check"><input id="showEdges" type="checkbox"> Show triangle grid</label>
+            <label class="check"><input id="animateLight" type="checkbox" checked> Rotate point light</label>
+            <div class="variant"><strong>Variant 6 — prioritize normal.</strong> The fragment shader normalizes N first, removes the normal component from tangent T, then derives B = N × T.<p>Separate RGB textures modulate diffuse and specular light; the blue-purple normal map perturbs the surface normal per fragment.</p></div>
+        </aside>
+    </div>
+</main>
 </body>
 </html>
