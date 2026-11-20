@@ -21,6 +21,16 @@ let animateLight = true;
 let lightAngle = 0;
 let previousFrameTime = null;
 
+// CGW (variant 6): texture-coordinate ROTATION, no scaling.
+let textureAngleDegrees = 40;
+let texturePivot = [0.42, 0.58]; // normalized (u,v) in [0,1] x [0,1]
+let enableRotation = true;
+let showPivotMarker = true;
+let pivotProgram;
+let pivotBuffer;
+const PIVOT_KEY_STEP = 0.0125;
+
+
 // Same Klein bottle parametrization used by PA1 and the supplied encyclopedia:
 // Krivoshapko & Ivanov, Encyclopedia of Analytical Surfaces, p. 423 (PDF p. 442).
 const KLEIN_A = 2.5; // The reference specifies a > 2.
@@ -150,6 +160,61 @@ function CreateSurfaceData(nU = uSegments, nV = vSegments) {
     return { positions, normals, tangents, texCoords, indices, lineIndices };
 }
 
+/** Explicit UV-coordinate transform, mirrored exactly in the GLSL shader. */
+function rotateTextureUV(uv, pivot = texturePivot, degrees = textureAngleDegrees) {
+    const theta = degrees * Math.PI / 180;
+    const c = Math.cos(theta);
+    const si = Math.sin(theta);
+    const x = uv[0] - pivot[0];
+    const y = uv[1] - pivot[1];
+    return [pivot[0] + c * x - si * y, pivot[1] + si * x + c * y];
+}
+
+function clampUnit(x) { return Math.min(1, Math.max(0, x)); }
+function wrapUnit(x) { return ((x % 1) + 1) % 1; }
+
+/**
+ * Moving over the U=0/1 identification flips V on the Klein bottle:
+ * r(2pi,v) = r(0,2pi-v). Keep the pivot's 3D location continuous.
+ */
+function moveTexturePivot(du, dv) {
+    let u = texturePivot[0] + du;
+    let v = texturePivot[1] + dv;
+    while (u > 1) { u -= 1; v = 1 - v; }
+    while (u < 0) { u += 1; v = 1 - v; }
+    texturePivot = [u, wrapUnit(v)];
+    refreshPivotControls();
+}
+
+function setTexturePivot(u, v) {
+    texturePivot = [clampUnit(u), clampUnit(v)];
+    refreshPivotControls();
+}
+
+function refreshPivotControls() {
+    document.getElementById('pivotU').value = texturePivot[0].toFixed(3);
+    document.getElementById('pivotV').value = texturePivot[1].toFixed(3);
+    document.getElementById('uvCursor').style.left = (texturePivot[0] * 100).toFixed(3) + '%';
+    document.getElementById('uvCursor').style.top = ((1 - texturePivot[1]) * 100).toFixed(3) + '%';
+    document.getElementById('pivotReadout').textContent =
+        `u = ${texturePivot[0].toFixed(3)} · v = ${texturePivot[1].toFixed(3)}`;
+}
+
+function onPivotKeydown(event) {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const tag = (event.target && event.target.tagName || '').toLowerCase();
+    if (['input', 'textarea', 'select'].includes(tag) || event.target?.isContentEditable) return;
+    const movement = event.shiftKey ? PIVOT_KEY_STEP * 4 : PIVOT_KEY_STEP;
+    const direction = {
+        a: [-movement, 0], d: [movement, 0],
+        w: [0, movement], s: [0, -movement]
+    }[event.key.toLowerCase()];
+    if (direction) {
+        event.preventDefault();
+        moveTexturePivot(...direction);
+    }
+}
+
 /** Assemble the normal matrix transpose(inverse(ModelView)) as mat3. */
 function getNormalMatrix(modelView) {
     const normal4 = m4.transpose(m4.inverse(modelView));
@@ -200,6 +265,9 @@ function draw() {
         gl.uniform1i(shProgram.uUseDiffuseMap, useDiffuseMap ? 1 : 0);
         gl.uniform1i(shProgram.uUseSpecularMap, useSpecularMap ? 1 : 0);
         gl.uniform1i(shProgram.uUseNormalMap, useNormalMap ? 1 : 0);
+        gl.uniform2fv(shProgram.uTexturePivot, texturePivot);
+        gl.uniform1f(shProgram.uTextureAngle, textureAngleDegrees * Math.PI / 180);
+        gl.uniform1i(shProgram.uEnableRotation, enableRotation ? 1 : 0);
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, diffuseTexture);
         gl.uniform1i(shProgram.uDiffuseTexture, 0);
@@ -226,6 +294,24 @@ function draw() {
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         surface.DrawLines(lineProgram);
         gl.disable(gl.BLEND);
+    }
+
+    // The marker stays in the original, UNROTATED parameter domain. UV texture
+    // sampling rotates about this physical point; moving it changes the center.
+    if (showPivotMarker) {
+        const u = TWO_PI * texturePivot[0];
+        const v = TWO_PI * texturePivot[1];
+        const position = kleinBottlePoint(u, v);
+        const N = kleinBottleNormal(u, v);
+        const shifted = position.map((x, i) => x + 0.04 * N[i]);
+        gl.bindBuffer(gl.ARRAY_BUFFER, pivotBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(shifted), gl.DYNAMIC_DRAW);
+        gl.useProgram(pivotProgram.prog);
+        gl.uniformMatrix4fv(pivotProgram.uMVP, false, mvp);
+        gl.bindBuffer(gl.ARRAY_BUFFER, pivotBuffer);
+        gl.vertexAttribPointer(pivotProgram.aPosition, 3, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(pivotProgram.aPosition);
+        gl.drawArrays(gl.POINTS, 0, 1);
     }
 }
 
@@ -311,7 +397,10 @@ function initGL() {
         uNormalTexture: gl.getUniformLocation(lit, 'uNormalTexture'),
         uUseDiffuseMap: gl.getUniformLocation(lit, 'uUseDiffuseMap'),
         uUseSpecularMap: gl.getUniformLocation(lit, 'uUseSpecularMap'),
-        uUseNormalMap: gl.getUniformLocation(lit, 'uUseNormalMap')
+        uUseNormalMap: gl.getUniformLocation(lit, 'uUseNormalMap'),
+        uTexturePivot: gl.getUniformLocation(lit, 'uTexturePivot'),
+        uTextureAngle: gl.getUniformLocation(lit, 'uTextureAngle'),
+        uEnableRotation: gl.getUniformLocation(lit, 'uEnableRotation')
     };
 
     const legacy = createProgram(pa2VertexShaderSource, pa2FragmentShaderSource);
@@ -333,6 +422,14 @@ function initGL() {
         uMVP: gl.getUniformLocation(lines, 'uModelViewProjection'),
         uColor: gl.getUniformLocation(lines, 'uLineColor')
     };
+
+    const pivotShader = createProgram(pivotVertexShaderSource, pivotFragmentShaderSource);
+    pivotProgram = {
+        prog: pivotShader,
+        aPosition: gl.getAttribLocation(pivotShader, 'aPosition'),
+        uMVP: gl.getUniformLocation(pivotShader, 'uModelViewProjection')
+    };
+    pivotBuffer = gl.createBuffer();
 
     gl.enable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE); // Non-orientable Klein bottle, both sides required.
@@ -398,6 +495,51 @@ function init() {
             animateLight = e.target.checked;
         });
 
+        // Rotation angle and point-selection controls (CGW).
+        const angle = document.getElementById('textureAngle');
+        angle.addEventListener('input', () => {
+            textureAngleDegrees = Number(angle.value);
+            document.getElementById('textureAngleValue').textContent = String(textureAngleDegrees) + '°';
+        });
+        document.getElementById('enableRotation').addEventListener('change', e => {
+            enableRotation = e.target.checked;
+        });
+        document.getElementById('showPivotMarker').addEventListener('change', e => {
+            showPivotMarker = e.target.checked;
+        });
+        document.getElementById('resetPivot').addEventListener('click', () => {
+            setTexturePivot(0.5, 0.5);
+        });
+        for (const [index, id] of [[0, 'pivotU'], [1, 'pivotV']]) {
+            const control = document.getElementById(id);
+            control.addEventListener('change', () => {
+                const value = Number(control.value);
+                if (!Number.isFinite(value)) {
+                    refreshPivotControls();
+                    return;
+                }
+                const next = [...texturePivot];
+                next[index] = value;
+                setTexturePivot(...next);
+            });
+        }
+        document.getElementById('captureScreenshot').addEventListener('click', () => {
+            // Render immediately before capture; default WebGL buffers may be
+            // cleared after compositing if preserveDrawingBuffer=false.
+            draw();
+            const anchor = document.createElement('a');
+            anchor.download = `CGW_UV_${textureAngleDegrees}deg.png`;
+            anchor.href = canvas.toDataURL('image/png');
+            anchor.click();
+        });
+        const pad = document.getElementById('uvPad');
+        pad.addEventListener('pointerdown', e => {
+            const r = pad.getBoundingClientRect();
+            setTexturePivot((e.clientX - r.left) / r.width,
+                1 - (e.clientY - r.top) / r.height);
+        });
+        document.addEventListener('keydown', onPivotKeydown);
+        refreshPivotControls();
         requestAnimationFrame(frame);
     } catch (error) {
         errorBox.textContent = 'Unable to render surface: ' + error.message;

@@ -43,6 +43,11 @@ uniform vec3 uLightEye;           // Point light in eye coordinates
 uniform bool uUseDiffuseMap;
 uniform bool uUseSpecularMap;
 uniform bool uUseNormalMap;
+// CGW: rotate texture COORDINATES about the user-selected UV pivot.
+uniform vec2 uTexturePivot;
+uniform float uTextureAngle; // radians, positive rotates sampled UV CCW
+uniform bool uEnableRotation;
+
 
 varying vec3 vPositionEye;
 varying vec3 vNormalEye;
@@ -58,17 +63,35 @@ void main() {
     vec3 B = normalize(cross(N, T));
     mat3 TBN = mat3(T, B, N);
 
-    vec3 sampledNormal = texture2D(uNormalTexture, vTexCoord).rgb * 2.0 - 1.0;
+    // Rotation around the point P in UV:  P + R(angle) * (UV - P).
+    // Applying the rotation to UV sampling (rather than the image pixels)
+    // meets the assignment's texture-coordinate rotation requirement.
+    vec2 centeredUV = vTexCoord - uTexturePivot;
+    float cs = cos(uTextureAngle);
+    float sn = sin(uTextureAngle);
+    vec2 rotatedUV = uEnableRotation
+        ? uTexturePivot + vec2(cs * centeredUV.x - sn * centeredUV.y,
+                              sn * centeredUV.x + cs * centeredUV.y)
+        : vTexCoord;
+
+    vec3 sampledNormal = texture2D(uNormalTexture, rotatedUV).rgb * 2.0 - 1.0;
     vec3 texNormal = uUseNormalMap ? normalize(sampledNormal) : vec3(0.0, 0.0, 1.0);
+    // The texture's tangent directions rotate WITH the UV mapping. Rotate
+    // its XY normal components by the inverse 2D rotation (R^T) to keep
+    // the apparent bump direction aligned with the newly rotated relief.
+    if (uEnableRotation && uUseNormalMap) {
+        texNormal.xy = vec2(cs * texNormal.x + sn * texNormal.y,
+                            -sn * texNormal.x + cs * texNormal.y);
+    }
     vec3 normalEye = normalize(TBN * texNormal);
 
     vec3 L = normalize(uLightEye - vPositionEye);
     // The Klein bottle is non-orientable: illuminate whichever side is lit.
     if (dot(normalEye, L) < 0.0) normalEye = -normalEye;
 
-    // Each map modulates the lighting term explicitly requested.
-    vec3 diffuseMap = uUseDiffuseMap ? texture2D(uDiffuseTexture, vTexCoord).rgb : vec3(0.19, 0.70, 0.87);
-    vec3 specularMap = uUseSpecularMap ? texture2D(uSpecularTexture, vTexCoord).rgb : vec3(0.48);
+    // Use the SAME transformed UV for all three maps to keep material aligned.
+    vec3 diffuseMap = uUseDiffuseMap ? texture2D(uDiffuseTexture, rotatedUV).rgb : vec3(0.19, 0.70, 0.87);
+    vec3 specularMap = uUseSpecularMap ? texture2D(uSpecularTexture, rotatedUV).rgb : vec3(0.48);
 
     vec3 ambient = vec3(0.024, 0.052, 0.072);
     float diffuseFactor = max(dot(normalEye, L), 0.0);
@@ -150,4 +173,24 @@ precision mediump float;
 uniform vec4 uLineColor;
 void main() {
     gl_FragColor = uLineColor;
+}`;
+
+// CGW: visible user-controlled pivot marker on the actual parameterized surface.
+const pivotVertexShaderSource = `
+attribute vec3 aPosition;
+uniform mat4 uModelViewProjection;
+void main() {
+    gl_Position = uModelViewProjection * vec4(aPosition, 1.0);
+    gl_PointSize = 20.0;
+}`;
+
+const pivotFragmentShaderSource = `
+precision mediump float;
+void main() {
+    vec2 p = gl_PointCoord * 2.0 - 1.0;
+    float r = length(p);
+    if (r > 1.0) discard;
+    vec3 col = r > 0.72 ? vec3(0.07, 0.14, 0.21) :
+               (r > 0.47 ? vec3(1.0, 0.82, 0.32) : vec3(1.0, 1.0, 0.92));
+    gl_FragColor = vec4(col, 1.0);
 }`;

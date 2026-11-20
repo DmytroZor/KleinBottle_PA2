@@ -13,7 +13,7 @@ for (const name of ['uDiffuseTexture','uSpecularTexture','uNormalTexture']) {
     assert(shader.includes(`uniform sampler2D ${name}`), `${name}: sampler missing`);
     assert(main.includes(`gl.getUniformLocation(lit, '${name}')`), `${name}: uniform not linked`);
 }
-assert(shader.includes('texture2D(uNormalTexture, vTexCoord).rgb * 2.0 - 1.0'));
+assert(shader.includes('texture2D(uNormalTexture, rotatedUV).rgb * 2.0 - 1.0'));
 assert(shader.includes('vec3 N = normalize(vNormalEye);'));
 assert(shader.includes('normalize(vTangentEye - dot(vTangentEye, N) * N)'));
 assert(shader.includes('vec3 B = normalize(cross(N, T))'));

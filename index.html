@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ControlTask · Klein Bottle · Three Texture Maps</title>
+    <title>CGW · Klein Bottle · UV Texture Rotation</title>
     <style>
         :root { color-scheme: dark; font-family: Inter, system-ui, Segoe UI, Arial, sans-serif; }
         * { box-sizing: border-box; }
@@ -38,6 +38,20 @@
         .texture-preview img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; margin-bottom: 5px; }
         .texture-preview span { font-size: 11px; color: #b7d1eb; }
         .small-note { font-size: 12px; line-height: 1.6; color: #a6b9d2; margin: 12px 0 0; }
+        .cgw-panel { padding: 14px; border-radius: 13px; border: 1px solid #426d78; background: #13283b; margin: 16px 0 24px; }
+        .cgw-panel h3 { margin: 0 0 12px; color: #9ef7d2; }
+        .number-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 10px 0; }
+        .number-row label { font-size: 12px; color: #b9d4ea; display: grid; gap: 6px; }
+        input[type='number'] { width:100%; min-width:0; background:#081a2c; border:1px solid #50728b; border-radius:7px; padding:9px; color:#f1f7ff; font-size:14px; }
+        .uv-pad { position: relative; width: min(100%, 225px); aspect-ratio: 1; margin: 12px auto; border-radius: 10px; border: 1px solid #6b96a5; cursor: crosshair; touch-action: manipulation;
+            background: linear-gradient(90deg, transparent 49.6%, rgba(232,244,255,.3) 50%, transparent 50.4%), linear-gradient(0deg, transparent 49.6%, rgba(232,244,255,.3) 50%, transparent 50.4%), url('textures/diffuse.png') center / cover; }
+        .uv-pad::before { content: 'v = 1'; font-size: 10px; position:absolute; left:5px; top:5px; background:rgba(8,20,34,.8); padding:2px 4px; color:white; }
+        .uv-pad::after { content: 'u = 1'; font-size: 10px; position:absolute; right:5px; bottom:5px; background:rgba(8,20,34,.8); padding:2px 4px; color:white; }
+        .uv-cursor { position:absolute; left:42%; top:42%; width:18px; height:18px; border:3px solid #ffcf61; background:white; border-radius:100%; transform:translate(-50%,-50%); box-shadow: 0 0 0 2px #102238,0 0 13px 4px rgba(255,204,76,.35); pointer-events:none; }
+        .kbd { display:inline-block; border:1px solid #607e98; border-bottom-width:3px; background:#243950; border-radius:5px; padding:2px 7px; font-size:12px; color:#fff; }
+        .cgw-actions { display:flex; gap:6px; align-items:center; justify-content:space-between; margin-top:9px; }
+        button { cursor:pointer; background:#24435b; color:#eaf4fd; border:1px solid #547b90; border-radius:8px; padding:8px 10px; font:inherit; font-size:12px; }
+        button:hover { background:#315a76; }
         .variant { border-top: 1px solid #314d66; padding-top: 18px; margin-top: 22px; font-size: 12px; line-height: 1.7; color: #aabfd7; }
         .variant strong { color: #f9d095; }
         #error { color: #ffb5bd; padding: 14px; font-size: 13px; }
@@ -52,21 +66,41 @@
 </head>
 <body onload="init()">
 <main class="container">
-    <div class="eyebrow">WEBGL · CONTROL TASK · VARIANT 6</div>
-    <h1>Klein Bottle <span class="accent">— Texture &amp; Normal Mapping</span></h1>
-    <p class="intro">3 independent texture maps · Per-pixel normal mapping · Normal-priority Gram–Schmidt · Animated point light</p>
+    <div class="eyebrow">WEBGL · COMPUTER GRAPHICS WORK · VARIANT 6</div>
+    <h1>Klein Bottle <span class="accent">— UV Texture Rotation</span></h1>
+    <p class="intro">Rotate all 3 texture maps about a selected surface UV point · Move the pivot with <strong>A / D / W / S</strong> · Normal-priority TBN</p>
     <div class="layout">
         <section class="viewer" aria-label="Interactive Klein bottle WebGL renderer">
             <canvas id="webglcanvas" width="1000" height="745">Your browser does not support HTML canvas.</canvas>
             <div id="error" hidden role="alert"></div>
             <div class="viewer-footer">
-                <span>Drag to rotate · Use sliders to change the mesh</span>
+                <span>Drag to orbit · A/D: ±U · W/S: ±V · Shift: faster</span>
                 <span id="meshInfo">Building mesh…</span>
                 <span id="textureStatus" role="status">Textures loaded: 0 / 3</span>
             </div>
         </section>
         <aside class="panel" aria-label="WebGL controls">
-            <h2>Surface controls</h2>
+            <h2>Texture rotation · CGW</h2>
+            <div class="cgw-panel" aria-label="CGW rotation and pivot controls">
+                <h3>Variant 6 · Rotation about (u, v)</h3>
+                <div class="control">
+                    <div class="control-heading"><label for="textureAngle">UV rotation angle</label><output id="textureAngleValue" for="textureAngle">40°</output></div>
+                    <input id="textureAngle" type="range" min="-180" max="180" step="1" value="40">
+                    <div class="scale"><span>−180°</span><span>0°</span><span>+180°</span></div>
+                </div>
+                <label class="check"><input id="enableRotation" type="checkbox" checked> Apply texture-coordinate rotation</label>
+                <label class="check"><input id="showPivotMarker" type="checkbox" checked> Show surface pivot marker</label>
+                <p class="small-note" style="margin-bottom:4px">Click the UV square to choose a pivot, edit its coordinates, or move it with the keyboard.</p>
+                <div id="uvPad" class="uv-pad" title="Click to choose a new UV rotation pivot" aria-label="Pick rotation center in normalized UV coordinates"><div id="uvCursor" class="uv-cursor"></div></div>
+                <div class="number-row">
+                    <label for="pivotU">Pivot U <input id="pivotU" type="number" min="0" max="1" step="0.005" value="0.420"></label>
+                    <label for="pivotV">Pivot V <input id="pivotV" type="number" min="0" max="1" step="0.005" value="0.580"></label>
+                </div>
+                <div class="cgw-actions"><span id="pivotReadout" class="small-note">u = 0.420 · v = 0.580</span><button id="resetPivot" type="button">Center pivot</button></div>
+                <p class="small-note"><button id="captureScreenshot" type="button">Save canvas screenshot (PNG)</button></p>
+                <p class="small-note"><span class="kbd">A</span> −U <span class="kbd">D</span> +U &nbsp; <span class="kbd">W</span> +V <span class="kbd">S</span> −V<br>Hold <span class="kbd">Shift</span> to move 4× faster. Click outside number fields before using WASD.</p>
+            </div>
+            <h2>Surface controls · inherited</h2>
             <div class="control">
                 <div class="control-heading"><label for="uSegments">U granularity</label><output id="uSegmentsValue" for="uSegments">64</output></div>
                 <input id="uSegments" type="range" min="8" max="160" step="1" value="64">
@@ -96,7 +130,7 @@
             <h3>Display</h3>
             <label class="check"><input id="showEdges" type="checkbox"> Show triangle grid</label>
             <label class="check"><input id="animateLight" type="checkbox" checked> Rotate point light</label>
-            <div class="variant"><strong>Variant 6 — prioritize normal.</strong> The fragment shader normalizes N first, removes the normal component from tangent T, then derives B = N × T.<p>Separate RGB textures modulate diffuse and specular light; the blue-purple normal map perturbs the surface normal per fragment.</p></div>
+            <div class="variant"><strong>CGW, even variant 6 — rotate UV.</strong> The rotation uses the same selected pivot for diffuse, specular and normal maps. The analytic surface geometry remains unchanged.<p><strong>ControlTask, variant 6 — prioritize normal.</strong></p> The fragment shader normalizes N first, removes the normal component from tangent T, then derives B = N × T.<p>Separate RGB textures modulate diffuse and specular light; the blue-purple normal map perturbs the surface normal per fragment.</p></div>
         </aside>
     </div>
 </main>
